@@ -1,38 +1,98 @@
-name: Release
+name: Publish preserved SREP build
 
 on:
   push:
-    tags:
-      - "[0-9]*.[0-9]*.[0-9]*"
+    branches: [ "master" ]
+    paths:
+      - ".github/workflows/release.yml"
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-
+  build-and-release:
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Install Missing Tools
-      run: sudo apt install nasm
-    - uses: actions/checkout@v3
+    - name: Install build tools
+      run: sudo apt-get update && sudo apt-get install -y nasm zip
+
+    - name: Check out EDK2
+      uses: actions/checkout@v4
       with:
         repository: tianocore/edk2
-        ref: 'edk2-stable202205'
-        submodules : true
+        ref: edk2-stable202205
+        submodules: recursive
         path: edk2
-    - uses: actions/checkout@v3
+
+    - name: Check out this SREP fork
+      uses: actions/checkout@v4
       with:
         path: edk2/SmokelessRuntimeEFIPatcher
-    - name: Build Base Tools
+
+    - name: Build EDK2 BaseTools
       working-directory: edk2
       run: make -C BaseTools
-    - name: Build
+
+    - name: Build SREP from source
       working-directory: edk2
-      run: "source edksetup.sh && build -b RELEASE -t GCC5 -p SmokelessRuntimeEFIPatcher/SmokelessRuntimeEFIPatcher.dsc -a X64 -s"
-    - name: Pack For Release
-      working-directory: edk2/Build/SmokelessRuntimeEFIPatcher/RELEASE_GCC5/X64/
-      run: "mkdir -p EFI/BOOT && cp SmokelessRuntimeEFIPatcher.efi  EFI/BOOT/BOOTX64.efi && zip SREP.zip -r EFI/"
-    - name: Release
-      uses: softprops/action-gh-release@v1
+      run: source edksetup.sh && build -b RELEASE -t GCC5 -p SmokelessRuntimeEFIPatcher/SmokelessRuntimeEFIPatcher.dsc -a X64 -s
+
+    - name: Assemble USB-ready release
+      shell: bash
+      run: |
+        set -euo pipefail
+        OUT="$GITHUB_WORKSPACE/SREP-USB"
+        mkdir -p "$OUT/EFI/BOOT"
+        cp edk2/Build/SmokelessRuntimeEFIPatcher/RELEASE_GCC5/X64/SmokelessRuntimeEFIPatcher.efi "$OUT/EFI/BOOT/BOOTX64.EFI"
+        cp edk2/SmokelessRuntimeEFIPatcher/SREP_Config.cfg "$OUT/SREP_Config.cfg"
+        cat > "$OUT/README-USB.txt" <<'EOF'
+        SREP USB package - Lenovo Legion GKCN65WW exploration
+
+        I preserved and rebuilt SREP from the forked source because the original
+        upstream release downloads had disappeared. This package was built by
+        GitHub Actions on 2026-08-19 from the source in this fork.
+
+        The included SREP_Config.cfg intentionally exposes ONLY the hidden
+        Advanced and Power setup pages. AMD PBS and AMD CBS are NOT enabled in
+        this first-pass config.
+
+        To use:
+        1. Format a USB drive FAT32.
+        2. Copy the CONTENTS of this package to the root of the USB.
+        3. Temporarily disable Secure Boot in the normal Lenovo BIOS.
+        4. Do NOT reset or delete Secure Boot keys.
+        5. F12 boot the USB.
+        6. Browse only on the first run; do not save hidden BIOS changes.
+
+        Expected USB layout:
+          USB:\SREP_Config.cfg
+          USB:\EFI\BOOT\BOOTX64.EFI
+
+        This is a runtime EFI tool. Use at your own risk.
+        EOF
+        sha256sum "$OUT/EFI/BOOT/BOOTX64.EFI" "$OUT/SREP_Config.cfg" > "$OUT/SHA256SUMS.txt"
+        cd "$OUT"
+        zip -r "$GITHUB_WORKSPACE/SREP-USB-Advanced-Power-only.zip" .
+
+    - name: Publish GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        draft: true
-        files: edk2/Build/SmokelessRuntimeEFIPatcher/RELEASE_GCC5/X64/SREP.zip
+        tag_name: 0.1.4c-aeae1.1
+        target_commitish: master
+        name: "SREP 0.1.4c - rebuilt from source (2026-08-19)"
+        draft: false
+        prerelease: false
+        body: |
+          I forked this project because the original upstream Releases/downloads had disappeared and I wanted a reproducible copy I could actually build instead of relying on a random mirror binary.
+
+          I am not a software engineer. I had ChatGPT help me update the GitHub Actions plumbing and package the build, while keeping the SREP source itself based on the upstream project.
+
+          This release was compiled from the source in this fork on 2026-08-19 using the upstream build approach: TianoCore EDK2 `edk2-stable202205`, GCC5, X64.
+
+          The included `SREP_Config.cfg` is deliberately conservative for my Lenovo Legion GKCN65WW investigation: it exposes only the hidden **Advanced** and **Power** setup pages. I intentionally left **AMD PBS** and **AMD CBS** disabled for this first pass.
+
+          The release ZIP is USB-ready. Extract its contents to the root of a FAT32 USB drive. The important files are `EFI/BOOT/BOOTX64.EFI` and `SREP_Config.cfg`.
+
+          I am preserving this mainly so I have a clean, reproducible SREP build available in the future if the original project remains without downloadable Releases. Use at your own risk; hidden firmware settings can make a system unbootable if changed carelessly.
+        files: SREP-USB-Advanced-Power-only.zip
