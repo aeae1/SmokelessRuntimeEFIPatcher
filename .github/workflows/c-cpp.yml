@@ -1,4 +1,4 @@
-name: C/C++ CI
+name: Build SREP
 
 on:
   push:
@@ -8,28 +8,46 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-22.04
 
     steps:
-    - name: Install Missing Tools
-      run: sudo apt install nasm
-    - uses: actions/checkout@v3
+    - name: Install build tools
+      run: sudo apt-get update && sudo apt-get install -y nasm
+
+    - name: Check out EDK2
+      uses: actions/checkout@v4
       with:
         repository: tianocore/edk2
-        ref: 'edk2-stable202205'
-        submodules : true
+        ref: edk2-stable202205
+        submodules: recursive
         path: edk2
-    - uses: actions/checkout@v3
+
+    - name: Check out this SREP fork
+      uses: actions/checkout@v4
       with:
         path: edk2/SmokelessRuntimeEFIPatcher
-    - name: Build Base Tools
+
+    - name: Build EDK2 BaseTools
       working-directory: edk2
       run: make -C BaseTools
-    - name: Build
+
+    - name: Build SREP
       working-directory: edk2
-      run: "source edksetup.sh && build -b RELEASE -t GCC5 -p SmokelessRuntimeEFIPatcher/SmokelessRuntimeEFIPatcher.dsc -a X64 -s"
-    - uses: actions/upload-artifact@v3.1.0
+      run: source edksetup.sh && build -b RELEASE -t GCC5 -p SmokelessRuntimeEFIPatcher/SmokelessRuntimeEFIPatcher.dsc -a X64 -s
+
+    - name: Assemble USB-ready package
+      shell: bash
+      run: |
+        set -euo pipefail
+        OUT="$GITHUB_WORKSPACE/SREP-USB"
+        mkdir -p "$OUT/EFI/BOOT"
+        cp edk2/Build/SmokelessRuntimeEFIPatcher/RELEASE_GCC5/X64/SmokelessRuntimeEFIPatcher.efi "$OUT/EFI/BOOT/BOOTX64.EFI"
+        cp edk2/SmokelessRuntimeEFIPatcher/SREP_Config.cfg "$OUT/SREP_Config.cfg"
+        sha256sum "$OUT/EFI/BOOT/BOOTX64.EFI" "$OUT/SREP_Config.cfg" > "$OUT/SHA256SUMS.txt"
+
+    - name: Upload USB-ready SREP artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: "SREP"
-        path: edk2/Build/SmokelessRuntimeEFIPatcher/RELEASE_GCC5/X64/SmokelessRuntimeEFIPatcher.efi
+        name: SREP-USB
+        path: SREP-USB/
+        if-no-files-found: error
