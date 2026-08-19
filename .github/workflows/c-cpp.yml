@@ -7,13 +7,16 @@ on:
   pull_request:
     branches: [ "master" ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
     - name: Install build tools
-      run: sudo apt-get update && sudo apt-get install -y nasm
+      run: sudo apt-get update && sudo apt-get install -y nasm zip
 
     - name: Check out EDK2
       uses: actions/checkout@v4
@@ -44,7 +47,31 @@ jobs:
         mkdir -p "$OUT/EFI/BOOT"
         cp edk2/Build/SmokelessRuntimeEFIPatcher/RELEASE_GCC5/X64/SmokelessRuntimeEFIPatcher.efi "$OUT/EFI/BOOT/BOOTX64.EFI"
         cp edk2/SmokelessRuntimeEFIPatcher/SREP_Config.cfg "$OUT/SREP_Config.cfg"
+        cat > "$OUT/README-USB.txt" <<'EOF'
+        SREP USB package - Lenovo Legion GKCN65WW exploration
+
+        I preserved and rebuilt SREP from this fork because the original
+        upstream release downloads had disappeared. This package was built
+        from source with GitHub Actions on 2026-08-19.
+
+        The included config intentionally exposes ONLY hidden Advanced and
+        Power pages. AMD PBS and AMD CBS are NOT enabled.
+
+        To use:
+        1. Format a USB drive FAT32.
+        2. Copy the CONTENTS of this package to the USB root.
+        3. Temporarily disable Secure Boot in the normal Lenovo BIOS.
+        4. Do NOT reset/delete Secure Boot keys.
+        5. F12 boot the USB.
+        6. Browse only on the first run; do not save hidden BIOS changes.
+
+        Expected layout:
+          USB:\SREP_Config.cfg
+          USB:\EFI\BOOT\BOOTX64.EFI
+        EOF
         sha256sum "$OUT/EFI/BOOT/BOOTX64.EFI" "$OUT/SREP_Config.cfg" > "$OUT/SHA256SUMS.txt"
+        cd "$OUT"
+        zip -r "$GITHUB_WORKSPACE/SREP-USB-Advanced-Power-only.zip" .
 
     - name: Upload USB-ready SREP artifact
       uses: actions/upload-artifact@v4
@@ -52,3 +79,21 @@ jobs:
         name: SREP-USB
         path: SREP-USB/
         if-no-files-found: error
+
+    - name: Ensure preserved GitHub Release exists
+      env:
+        GH_TOKEN: ${{ github.token }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        TAG="0.1.4c-aeae1.1"
+        if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "Release $TAG already exists. Leaving it in place."
+          exit 0
+        fi
+        gh release create "$TAG" \
+          "$GITHUB_WORKSPACE/SREP-USB-Advanced-Power-only.zip" \
+          --repo "$GITHUB_REPOSITORY" \
+          --target master \
+          --title "SREP 0.1.4c - rebuilt from source (2026-08-19)" \
+          --notes "I forked this project because the original upstream Releases/downloads had disappeared and I wanted a reproducible copy I could actually build instead of relying on a random mirror binary. I am not a software engineer; I had ChatGPT help me update the GitHub Actions plumbing and package the build while keeping the SREP source based on the upstream project. This release was compiled from this fork on 2026-08-19 using TianoCore EDK2 edk2-stable202205, GCC5, X64. The included SREP_Config.cfg deliberately exposes only the hidden Advanced and Power pages for my Lenovo Legion GKCN65WW investigation. AMD PBS and AMD CBS are intentionally left disabled. The ZIP is USB-ready: extract it to the root of a FAT32 USB drive. Use at your own risk; hidden firmware settings can make a system unbootable if changed carelessly."
