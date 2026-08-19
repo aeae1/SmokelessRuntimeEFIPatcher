@@ -1,3 +1,15 @@
+# Personal fork note — 2026-08-19
+
+I forked this repository because the upstream project’s old Releases page is no longer populated, and I wanted a reproducible way to build fresh SREP binaries directly from the original source instead of relying on random preserved copies of `BOOTX64.efi` from third-party mirrors.
+
+I had ChatGPT help me inspect the original build workflow, update the GitHub Actions plumbing so current runners can still produce artifacts, and add a conservative `SREP_Config.cfg` for my own Lenovo Legion testing. The SREP source itself is still the upstream author’s work; I am not claiming authorship of the project. My goal with this fork is basically preservation, reproducible builds, and a place where I can keep the exact config I am testing documented alongside the source.
+
+For my initial Legion test, I am intentionally exposing only the **Advanced** and **Power** forms. I am **not** exposing AMD PBS or AMD CBS yet. I want the first pass to be as conservative as possible: boot SREP with Secure Boot temporarily disabled, browse the newly visible setup pages, take photos, and exit without changing or saving any hidden setting. If I later decide to experiment with PBS/CBS, I will document that separately rather than quietly broadening this first config.
+
+The current `SREP_Config.cfg` in this fork is therefore deliberately narrower than the combined AMD/Intel example farther down in the original README.
+
+---
+
 # SmokelessRuntimeEFIPatcher
 # These Are tool From "The Vault", that I decided to upload, so expect not fully polished product, or very slow Fixes if any
 
